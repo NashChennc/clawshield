@@ -1,15 +1,18 @@
 {
   "name": "openclaw-plugin-clawshield",
   "version": "1.0.0",
-  "description": "OpenClaw plugin: embedded TypeScript ClawShield SafetyCore (prompt + tool hooks, no Python bridge).",
+  "description": "OpenClaw plugin: embedded TypeScript ClawShield SafetyCore with hook-enforced parameter replacement/blocking and optional CLI bridge.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/entrypoints/plugin/index.js",
+  "types": "./dist/entrypoints/plugin/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/entrypoints/plugin/index.d.ts",
+      "default": "./dist/entrypoints/plugin/index.js"
     }
+  },
+  "bin": {
+    "clawshield": "./dist/entrypoints/cli/main.js"
   },
   "files": [
     "dist",
@@ -23,7 +26,7 @@
   },
   "openclaw": {
     "extensions": [
-      "./dist/index.js"
+      "./dist/entrypoints/plugin/index.js"
     ]
   },
   "scripts": {

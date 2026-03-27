@@ -3,13 +3,14 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createEvent } from "../src/event-schema/models.js";
-import type { Settings } from "../src/config/settings.js";
-import { buildSafetyCore } from "../src/core/factory.js";
-import { buildEndpoint, normalizeApiType } from "../src/judge/client.js";
-import { validatePolicyDocument } from "../src/policy/schema.js";
-import { GuardedShell } from "../src/wrappers/shell.js";
-import { GuardedFileWriter } from "../src/wrappers/file-write.js";
+import { createEvent } from "../src/core/models/event.js";
+import type { Settings } from "../src/infrastructure/config/settings.js";
+import { buildSafetyCore } from "../src/core/engine/factory.js";
+import { buildEndpoint, GuardJudgeClient, normalizeApiType } from "../src/adapters/llm-judge/client.js";
+import { validatePolicyDocument } from "../src/core/policy/schema.js";
+import { GuardedShell } from "../src/executors/wrappers/shell.js";
+import { GuardedFileWriter } from "../src/executors/wrappers/file-write.js";
+import { GuardedWebFetcher } from "../src/executors/wrappers/web-fetch.js";
 
 const pkgRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -69,6 +70,13 @@ describe("SafetyCore", () => {
     expect(r.decision).toBe("require_confirm");
   });
 
+  it("windows-style private path access requires confirm", async () => {
+    const tmp = fs.mkdtempSync(path.join(tmpdir(), "clawshield-test-"));
+    const shell = new GuardedShell(buildCore(tmp));
+    const r = await shell.run("type sandbox\\private\\customer_records.txt");
+    expect(r.decision).toBe("require_confirm");
+  });
+
   it("memory poisoning requires confirm", async () => {
     const tmp = fs.mkdtempSync(path.join(tmpdir(), "clawshield-test-"));
     const core = buildCore(tmp);
@@ -116,6 +124,21 @@ describe("SafetyCore", () => {
     const r = await writer.write(target, "TEST_PAYMENT_API_KEY=pay_test_local_123456");
     expect(r.decision).toBe("require_confirm");
   });
+
+  it("shell wrapper executes command when execute=true", async () => {
+    const tmp = fs.mkdtempSync(path.join(tmpdir(), "clawshield-test-"));
+    const shell = new GuardedShell(buildCore(tmp));
+    const r = await shell.run("echo clawshield", "local-demo", true);
+    expect(r.decision).toBe("allow");
+    expect(r.stdout?.toLowerCase()).toContain("clawshield");
+  });
+
+  it("web fetch wrapper blocks invalid scheme", async () => {
+    const tmp = fs.mkdtempSync(path.join(tmpdir(), "clawshield-test-"));
+    const fetcher = new GuardedWebFetcher(buildCore(tmp));
+    const r = await fetcher.fetch("file:///tmp/anything", "local-demo", false);
+    expect(r.decision).toBe("block");
+  });
 });
 
 describe("policy schema", () => {
@@ -148,5 +171,32 @@ describe("judge helpers", () => {
         "/chat/completions",
       ),
     ).toBe(true);
+  });
+
+  it("generatePolicyCandidates parses policies field", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  policies: [{ id: "cand-001-generated", title: "candidate", status: "candidate" }],
+                }),
+              },
+            },
+          ],
+        }),
+      }) as Response) as typeof fetch;
+    try {
+      const judge = new GuardJudgeClient("https://api.example.com/v1", "k", "m");
+      const generated = await judge.generatePolicyCandidates({ incidents: [] });
+      expect(Array.isArray(generated)).toBe(true);
+      expect((generated?.[0] as Record<string, unknown>)["id"]).toBe("cand-001-generated");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

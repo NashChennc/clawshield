@@ -1,6 +1,6 @@
 # openclaw-plugin-clawshield
 
-OpenClaw plugin with an **embedded TypeScript ClawShield `SafetyCore`**: prepends guidance in `before_prompt_build` and evaluates tool/prompt lifecycle hooks in-process. `tool_result_persist` uses a **Node `eval-once` subprocess** so synchronous hooks still run the full core (including optional guard LLM).
+OpenClaw plugin with an **embedded TypeScript ClawShield `SafetyCore`**: enforces tool-parameter replacement/blocking in lifecycle hooks and evaluates context in-process. `tool_result_persist` uses a **Node `eval-once` subprocess** so synchronous hooks still run the full core (including optional guard LLM).
 
 **中文说明：** 见 [docs/README.md](docs/README.md)。
 
@@ -31,13 +31,27 @@ Enable the plugin in your OpenClaw configuration if required (see `openclaw plug
 | Key | Description |
 |-----|-------------|
 | `failClosed` | Block tool calls when evaluation fails (default: true) |
-| `enablePromptContextEval` | Run `before_prompt_build` through SafetyCore (default: true) |
+| `enablePromptContextEval` | Run `before_prompt_build` through SafetyCore for context risk logging (default: true; no prompt text injection) |
 | `persistEvalTimeoutMs` | Timeout for `tool_result_persist` eval-once subprocess in ms (default: 120000) |
 
-## Legacy Markdown injection (optional)
+## CLI bridge commands
 
-If you still use the Python `clawshield` CLI:
+This package now exposes a Node CLI:
 
 ```bash
-clawshield attach-openclaw --legacy-bootstrap
+clawshield hook-eval < input.json
+clawshield shell --command "ls -la"
+clawshield tool-result --content-file ./result.txt
 ```
+
+
+## Source layout
+
+The `src/` tree follows layered architecture:
+
+- `entrypoints/`: CLI, plugin entry, one-off scripts
+- `adapters/`: external integrations (OpenClaw, guard LLM)
+- `core/`: domain engine, evaluation rules, policy, models
+- `executors/`: guarded tool wrappers and result interceptors
+- `infrastructure/`: config, state persistence, incident logging
+- `shared/`: stateless utility helpers

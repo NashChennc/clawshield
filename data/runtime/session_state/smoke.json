@@ -1,0 +1,15 @@
+{
+  "session_id": "smoke",
+  "recent_events": [
+    {
+      "event_type": "tool_call_attempt",
+      "risk_stage": "pre_tool",
+      "summary": "OpenClaw before_tool_call for shell",
+      "tool_name": "shell",
+      "decision": "allow",
+      "risk_types": []
+    }
+  ],
+  "risk_flags": [],
+  "counters": {}
+}

@@ -1,7 +1,7 @@
 {
   "id": "clawshield",
   "name": "ClawShield",
-  "description": "Safety hooks for OpenClaw: embedded TypeScript SafetyCore (prompt + tool intercepts; tool_result_persist uses Node eval-once subprocess).",
+  "description": "Safety hooks for OpenClaw: embedded TypeScript SafetyCore with enforced tool param replacement/blocking and tool_result_persist eval-once subprocess.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
