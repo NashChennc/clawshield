@@ -1,6 +1,6 @@
 # openclaw-plugin-clawshield
 
-OpenClaw plugin with an **embedded TypeScript ClawShield `SafetyCore`**: enforces tool-parameter replacement/blocking in lifecycle hooks and evaluates context in-process. `tool_result_persist` uses a **Node `eval-once` subprocess** so synchronous hooks still run the full core (including optional guard LLM).
+OpenClaw plugin with an **embedded TypeScript ClawShield `SafetyCore`**: enforces tool-parameter replacement/blocking in lifecycle hooks and evaluates context in-process. `tool_result_persist` uses a **Node `hook-once` subprocess** so synchronous hooks still run the full core (including optional guard LLM).
 
 **中文说明：** 见 [docs/README.md](docs/README.md)。
 
@@ -32,7 +32,14 @@ Enable the plugin in your OpenClaw configuration if required (see `openclaw plug
 |-----|-------------|
 | `failClosed` | Block tool calls when evaluation fails (default: true) |
 | `enablePromptContextEval` | Run `before_prompt_build` through SafetyCore for context risk logging (default: true; no prompt text injection) |
-| `persistEvalTimeoutMs` | Timeout for `tool_result_persist` eval-once subprocess in ms (default: 120000) |
+| `persistEvalTimeoutMs` | Timeout for `tool_result_persist` hook-once subprocess in ms (default: 120000) |
+
+## Security guarantees for `hook-once`
+
+- `hook-once` is a one-shot evaluator process for hook routing, not a JavaScript string evaluator.
+- IPC between plugin and subprocess is JSON-only (`stdin` JSON request, `stdout` JSON decision).
+- Inputs are validated as data-only payloads; unknown hooks and oversized payloads are rejected.
+- Dynamic code execution APIs are prohibited in the persist path (`eval`, `new Function`, `vm.runInThisContext`, `vm.Script`).
 
 ## CLI bridge commands
 

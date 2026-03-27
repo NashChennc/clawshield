@@ -2,12 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createEvent } from "../src/core/models/event.js";
 import type { Settings } from "../src/infrastructure/config/settings.js";
 import { buildSafetyCore } from "../src/core/engine/factory.js";
 import { buildEndpoint, GuardJudgeClient, normalizeApiType } from "../src/adapters/llm-judge/client.js";
 import { validatePolicyDocument } from "../src/core/policy/schema.js";
+import { PolicyLoader } from "../src/core/policy/loader.js";
 import { GuardedShell } from "../src/executors/wrappers/shell.js";
 import { GuardedFileWriter } from "../src/executors/wrappers/file-write.js";
 import { GuardedWebFetcher } from "../src/executors/wrappers/web-fetch.js";
@@ -153,6 +154,45 @@ describe("policy schema", () => {
       version: "0.1.0",
       tags: ["generated", "revision"],
     });
+  });
+});
+
+describe("policy loader", () => {
+  it("skips malformed json policy files without throwing", () => {
+    const tmp = fs.mkdtempSync(path.join(tmpdir(), "clawshield-policy-loader-"));
+    const validPolicyPath = path.join(tmp, "valid-policy.json");
+    const malformedPolicyPath = path.join(tmp, "broken-policy.json");
+    fs.writeFileSync(
+      validPolicyPath,
+      JSON.stringify({
+        id: "base-test-policy",
+        title: "Test policy for loader tolerance",
+        scope: ["tool_call_attempt", "shell"],
+        trigger: { keywords: ["safe-test-token"] },
+        risk_type: "dangerous_exec",
+        required_evidence: ["command string"],
+        default_action: "block",
+        severity: "low",
+        rationale: "Used only for loader test.",
+        examples: [{ input: "echo hello", expected: "block" }],
+        status: "active",
+        version: "1.0.0",
+        tags: ["test"],
+      }),
+      "utf8",
+    );
+    fs.writeFileSync(malformedPolicyPath, '{"id":"broken",', "utf8");
+
+    const loader = new PolicyLoader(tmp);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const loaded = loader.load();
+      expect(loaded).toHaveLength(1);
+      expect(loaded[0]?.id).toBe("base-test-policy");
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
 

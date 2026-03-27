@@ -7,3 +7,5 @@ tmp-test-*/
 coverage/
 .DS_Store
 *.log
+data/
+data/runtime/

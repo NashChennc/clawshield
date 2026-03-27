@@ -1,7 +1,7 @@
 {
   "id": "clawshield",
   "name": "ClawShield",
-  "description": "Safety hooks for OpenClaw: embedded TypeScript SafetyCore with enforced tool param replacement/blocking and tool_result_persist eval-once subprocess.",
+  "description": "Safety hooks for OpenClaw: embedded TypeScript SafetyCore with enforced tool param replacement/blocking and tool_result_persist hook-once subprocess.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -17,7 +17,7 @@
       "persistEvalTimeoutMs": {
         "type": "number",
         "minimum": 1000,
-        "description": "Max milliseconds to wait for tool_result_persist eval-once subprocess (default: 120000)."
+        "description": "Max milliseconds to wait for tool_result_persist hook-once subprocess (default: 120000)."
       }
     }
   }

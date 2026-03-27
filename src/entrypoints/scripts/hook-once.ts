@@ -6,6 +6,14 @@ import { buildSafetyCore } from "../../core/engine/factory.js";
 import { loadSettings } from "../../infrastructure/config/settings.js";
 import { getPackageRoot } from "../../shared/utils/package-root.js";
 
+const MAX_STDIN_BYTES = 8 * 1024 * 1024;
+const MAX_JSON_DEPTH = 32;
+const MAX_JSON_NODES = 100_000;
+const ALLOWED_HOOKS = new Set(["before_prompt_build", "before_tool_call", "after_tool_call", "tool_result_persist"]);
+const BLOCKED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+type JsonLike = null | boolean | number | string | JsonLike[] | { [k: string]: JsonLike };
+
 function failDecision(rationale: string, riskTypes: string[] = ["hook_eval_error"]): Record<string, unknown> {
   return {
     action: "block",
@@ -36,11 +44,38 @@ function emptyStdinDecision(): Record<string, unknown> {
   };
 }
 
+function isJsonLike(value: unknown, depth = 0, state = { nodes: 0 }): value is JsonLike {
+  if (depth > MAX_JSON_DEPTH) return false;
+  state.nodes += 1;
+  if (state.nodes > MAX_JSON_NODES) return false;
+  if (value === null) return true;
+  const t = typeof value;
+  if (t === "string" || t === "boolean") return true;
+  if (t === "number") return Number.isFinite(value as number);
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (!isJsonLike(entry, depth + 1, state)) return false;
+    }
+    return true;
+  }
+  if (t !== "object") return false;
+  const rec = value as Record<string, unknown>;
+  for (const [k, v] of Object.entries(rec)) {
+    if (BLOCKED_KEYS.has(k)) return false;
+    if (!isJsonLike(v, depth + 1, state)) return false;
+  }
+  return true;
+}
+
 async function main(): Promise<number> {
   const raw = fs.readFileSync(0, "utf8");
   if (!raw.trim()) {
     process.stdout.write(JSON.stringify(emptyStdinDecision()));
     return 0;
+  }
+  if (Buffer.byteLength(raw, "utf8") > MAX_STDIN_BYTES) {
+    process.stdout.write(JSON.stringify(failDecision(`hook-eval input exceeds ${MAX_STDIN_BYTES} bytes`)));
+    return 1;
   }
   let data: Record<string, unknown>;
   try {
@@ -52,8 +87,20 @@ async function main(): Promise<number> {
   const hook = data["hook"];
   const payload = data["payload"];
   const sessionId = data["session_id"];
-  if (typeof hook !== "string" || !payload || typeof payload !== "object" || Array.isArray(payload)) {
+  if (typeof hook !== "string" || !ALLOWED_HOOKS.has(hook)) {
+    process.stdout.write(JSON.stringify(failDecision("hook-eval requires an allowed hook name")));
+    return 1;
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     process.stdout.write(JSON.stringify(failDecision("hook-eval requires string hook and object payload")));
+    return 1;
+  }
+  if (!isJsonLike(payload)) {
+    process.stdout.write(JSON.stringify(failDecision("hook-eval payload must be JSON-safe data only")));
+    return 1;
+  }
+  if (sessionId !== undefined && (typeof sessionId !== "string" || Buffer.byteLength(sessionId, "utf8") > 512)) {
+    process.stdout.write(JSON.stringify(failDecision("hook-eval session_id must be a short string")));
     return 1;
   }
   const root = process.env["CLAWSHIELD_PROJECT_ROOT"]

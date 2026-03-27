@@ -7,8 +7,15 @@
 ## 工作流程
 
 1. `before_tool_call` / `after_tool_call` 在 **同一 Node 进程** 内 `await SafetyCore.evaluate`，并在 `before_tool_call` 对参数执行强制规范化与替换（或阻断）。
-2. `tool_result_persist` 为 **同步**钩子：插件通过 **`spawnSync`** 启动同包内的 **`dist/entrypoints/scripts/eval-once.js`**，stdin 传入 `{ hook, payload, session_id }`，子进程跑完完整评估后 **stdout 仅输出裁决 JSON**（与原先阻塞式 `hook-eval` 语义一致）。
+2. `tool_result_persist` 为 **同步**钩子：插件通过 **`spawnSync`** 启动同包内的 **`dist/entrypoints/scripts/hook-once.js`**，stdin 传入 `{ hook, payload, session_id }`，子进程跑完完整评估后 **stdout 仅输出裁决 JSON**（与原先阻塞式 `hook-eval` 语义一致）。
 3. 策略 JSON 默认从包内 **`policies/base`** 加载（可用 `CLAWSHIELD_POLICY_DIR` 覆盖）。守护模型密钥仅通过环境变量传入，勿写入 stdin。
+
+## `hook-once` 安全保证
+
+- `hook-once` 是一次性评估子进程，不执行任何来自 `tool_result` 的字符串代码。
+- 进程间通信严格使用 JSON（stdin 请求 / stdout 裁决），不传递可执行脚本片段。
+- 子进程会校验 hook 白名单、payload 数据形状与输入体积；非法输入返回受控失败裁决。
+- 在关键路径中禁止使用动态执行 API（`eval`、`new Function`、`vm.runInThisContext`、`vm.Script`）。
 
 ## 环境与目录（与 Python 版对齐）
 
@@ -17,7 +24,7 @@
 | `CLAWSHIELD_POLICY_DIR` | 策略目录（默认 `<packageRoot>/policies/base`） |
 | `CLAWSHIELD_INCIDENT_PATH` | incidents JSONL 路径（默认 `<packageRoot>/data/incidents/incidents.jsonl`） |
 | `CLAWSHIELD_RUNTIME_DIR` | 运行时与会话状态根目录（默认 `<packageRoot>/data/runtime`） |
-| `CLAWSHIELD_PROJECT_ROOT` | 可选；`eval-once` 子进程用于解析上述相对路径的根（测试或自定义布局时使用） |
+| `CLAWSHIELD_PROJECT_ROOT` | 可选；`hook-once` 子进程用于解析上述相对路径的根（测试或自定义布局时使用） |
 | `GUARD_API_TYPE` / `GUARD_API_BASE` / `GUARD_API_KEY` / `GUARD_MODEL` | 在线守护模型（OpenAI 兼容或 Anthropic） |
 | `GUARD_API_VERSION` / `GUARD_MAX_TOKENS` | Anthropic 等补充参数 |
 
@@ -30,7 +37,7 @@
 | `before_prompt_build` | 可选执行 prompt context 风险评估并写 incident；不注入系统说明 |
 | `before_tool_call` | `allow` / `block` / `require_confirm`（网关按阻断处理）/ `sanitize_then_allow`（合并 `sanitized_payload`） |
 | `after_tool_call` | 返回后的研判与状态落盘 |
-| `tool_result_persist` | 持久化前同步改写工具结果消息；内部走 **eval-once** |
+| `tool_result_persist` | 持久化前同步改写工具结果消息；内部走 **hook-once** |
 
 ## 配置（`pluginConfig`，插件 id：`clawshield`）
 

@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { DecisionDict } from "../../core/models/decision.js";
+import { stringifySanitizedPayloadForPersist } from "../../core/models/decision-sanitize.js";
 
 function isToolResultMessage(msg: AgentMessage): msg is Extract<AgentMessage, { role: "toolResult" }> {
   return msg.role === "toolResult";
@@ -20,10 +21,7 @@ export function applyPersistDecision(message: AgentMessage, decision: DecisionDi
   const clone = structuredClone(message) as Extract<AgentMessage, { role: "toolResult" }>;
 
   if (action === "sanitize_then_allow" && decision.sanitized_payload) {
-    const replacement =
-      typeof decision.sanitized_payload.content === "string"
-        ? decision.sanitized_payload.content
-        : JSON.stringify(decision.sanitized_payload);
+    const replacement = stringifySanitizedPayloadForPersist(decision.sanitized_payload);
     clone.content = [{ type: "text", text: replacement }];
     clone.isError = false;
     return clone;

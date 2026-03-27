@@ -7,6 +7,7 @@ import { evalPersistBlocking } from "../scripts/persist-eval.js";
 import { normalizeToolParams } from "../../adapters/openclaw/tool-params.js";
 import { stableSessionId } from "../../infrastructure/state/session-id.js";
 import { applyPersistDecision } from "../../executors/interceptors/tool-result.js";
+import { parseSanitizedPayloadForParams } from "../../core/models/decision-sanitize.js";
 
 export type ClawShieldPluginConfig = {
   failClosed?: boolean;
@@ -32,7 +33,12 @@ function mapBeforeToolDecision(
   const rationale = decision.rationale ?? action;
   if (action === "allow") return { params: normalizedParams };
   if (action === "sanitize_then_allow" && decision.sanitized_payload && typeof decision.sanitized_payload === "object") {
-    return { params: { ...normalizedParams, ...decision.sanitized_payload } as Record<string, unknown> };
+    const safePayload = parseSanitizedPayloadForParams(decision.sanitized_payload);
+    if (!safePayload) {
+      if (cfg.failClosed !== false) return { block: true, blockReason: "Invalid sanitized payload shape from evaluator." };
+      return { params: normalizedParams };
+    }
+    return { params: { ...normalizedParams, ...safePayload } as Record<string, unknown> };
   }
   if (action === "block" || action === "require_confirm") return { block: true, blockReason: rationale };
   return { block: true, blockReason: rationale };
