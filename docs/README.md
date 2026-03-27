@@ -25,6 +25,7 @@ This directory contains the project documentation organized by topic.
 ### Development
 
 - Build and test commands, plus source layout: [`../README.md`](../README.md)
+- Contributing: [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
 
 ## Scope Rules
 

@@ -57,5 +57,6 @@ clawshield tool-result --content-file ./result.txt
 
 ## Related Docs
 
-- Documentation index: [`README.md`](./README.md)
+- Project overview and quick start: [root `README.md`](../README.md)
+- Documentation hub: [`docs/README.md`](./README.md)
 - Internal design and guarantees: [`ARCHITECTURE.md`](./ARCHITECTURE.md)

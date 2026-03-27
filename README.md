@@ -30,6 +30,7 @@ Enable the plugin in OpenClaw configuration if required (see `openclaw plugins -
 - Documentation hub: [`docs/README.md`](docs/README.md)
 - Usage and configuration: [`docs/USER-GUIDE.md`](docs/USER-GUIDE.md)
 - Architecture and security: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 ## Development
 

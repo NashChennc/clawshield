@@ -1,129 +1,239 @@
-# Architecture & Security Guarantees
+# OpenClaw Safety Plugin: Architecture & Security Guarantees
 
-## Architecture Outline
+This document outlines the architecture, execution flows, and security guarantees of the OpenClaw Safety Plugin. It is designed to help developers, architects, and security reviewers understand how payloads are processed, evaluated, and safely persisted.
 
-- **Core Engine**: TypeScript `SafetyCore` evaluates hook payloads against policy and guard signals.
-- **Hook Integration**: OpenClaw lifecycle hooks route data into the evaluator with hook-specific handling.
-- **Sync Bridge**: `tool_result_persist` uses a one-shot subprocess to preserve synchronous contract.
-- **State & Logging**: Runtime/session state and incidents are persisted through infrastructure services.
+## How to read this document
 
-## Runtime Components
+1. Start with **TL;DR: Core Philosophy** and **How decisions are made** for vocabulary and outcomes.
+2. Read **System architecture and workflows** for hook behavior, step-by-step flow, and the two diagrams.
+3. Read **The synchronous bridge and security guarantees** for `tool_result_persist` and `hook-once` boundaries.
+4. Use **File guide** when you need to jump straight to implementation.
 
-- **Plugin entry**: `src/entrypoints/plugin/index.ts` registers lifecycle hooks and delegates to the OpenClaw adapter.
-- **OpenClaw adapter**: `src/adapters/openclaw/adapter.ts` maps hook payloads to internal event models and routes decisions back.
-- **SafetyCore**: `src/core/engine/safety-core.ts` is the evaluation orchestrator; `src/core/engine/factory.ts` wires policies, judge, and storage services.
-- **Policy subsystem**: `src/core/policy/loader.ts`, `src/core/policy/retriever.ts`, `src/core/policy/schema.ts`.
-- **Deterministic fences**: `src/core/evaluation/deterministic.ts` applies hard rules before/alongside model-based guard judgment.
-- **Guard client**: `src/adapters/llm-judge/client.ts` performs optional online risk judgment.
-- **Persistence**: incidents in `src/infrastructure/logger/incidents.ts`, session state in `src/infrastructure/state/session-state.ts`.
+## TL;DR: Core Philosophy
 
-## Hook Workflow
+At its core, this plugin processes every OpenClaw hook through a **staged safety pipeline**. Primary objectives:
 
-1. **`before_tool_call` / `after_tool_call`**
-   - Runs in the same Node process through `await SafetyCore.evaluate`.
-   - `before_tool_call` can sanitize, replace, require confirm, or block parameters.
-2. **`tool_result_persist`**
-   - Runs as a synchronous hook.
-   - Uses `spawnSync` to invoke `dist/entrypoints/scripts/hook-once.js`.
-   - Sends `{ hook, payload, session_id }` through stdin and receives decision JSON on stdout.
-3. **`before_prompt_build`**
-   - Optional context-risk evaluation and incident logging.
-   - Does not inject additional prompt instructions.
+1. **Consistency:** Payloads are normalized into a unified internal event model so policy logic runs uniformly across hook types.
+2. **Strict evaluation priority:** *Deterministic fences (hard rules) → guard-model judgment (LLM, optional) → fallback heuristics → default allow*.
+3. **Observability and continuity:** Final decisions are written to incident logs (auditability) and session state snapshots (short-horizon continuity).
 
-## Execution Flow (Detailed)
+### Key terminology
 
-1. Hook enters plugin entry (`src/entrypoints/plugin/index.ts`).
-2. Payload normalization and tool argument shaping run in:
-   - `src/adapters/openclaw/normalize.ts`
-   - `src/adapters/openclaw/tool-params.ts`
-3. Adapter builds internal evaluation event (`src/core/models/event.ts`) and invokes `SafetyCore`.
-4. `SafetyCore` retrieves policy and evaluates:
-   - deterministic rules (`src/core/evaluation/deterministic.ts`)
-   - optional judge result (`src/adapters/llm-judge/client.ts`)
-5. Final decision model is produced (`src/core/models/decision.ts`, `src/core/models/decision-sanitize.ts`).
-6. Infrastructure layer persists state and incidents.
-7. Adapter converts decision back to hook-compatible return payload.
+- **SafetyCore:** Central evaluation orchestrator (`src/core/engine/safety-core.ts`).
+- **Deterministic fences:** Hard rules applied before any model-based judgment.
+- **Guard model:** Optional online LLM risk judgment (`src/adapters/llm-judge/client.ts`).
+- **Sync bridge (`hook-once`):** One-shot subprocess preserving the synchronous `tool_result_persist` contract (`src/entrypoints/scripts/hook-once.ts`).
 
-## Decision Semantics
+---
 
-- `allow`: continue execution.
-- `block`: deny execution.
-- `require_confirm`: treated as block by the gateway path.
-- `sanitize_then_allow`: merge `sanitized_payload` and continue.
+## How decisions are made
 
-## Synchronous Persist Path (`tool_result_persist`)
+When `SafetyCore` evaluates a payload against policy and guard signals, outputs use these semantics:
 
-- Entry script: `src/entrypoints/scripts/hook-once.ts`
-- Caller script: `src/entrypoints/scripts/persist-eval.ts`
-- Result interception: `src/executors/interceptors/tool-result.ts`
-- Guarantees:
-  - Parent process sends JSON request over stdin.
-  - Child process returns JSON decision over stdout.
-  - No JS source text from tool output is executed.
+- `allow`: Continue execution.
+- `block`: Deny execution.
+- `require_confirm`: Treated as `block` by the gateway path (not a pause-for-human flow in the plugin).
+- `sanitize_then_allow`: Merge `sanitized_payload` and continue.
 
-## Security Guarantees for `hook-once`
+---
 
-- **No Code Execution**: `hook-once` is a routing/evaluation subprocess, not a string code evaluator.
-- **JSON-only IPC**: Plugin and subprocess communicate strictly with structured JSON over stdin/stdout.
-- **Input Validation**: Unknown hooks, invalid payload shape, and oversized payloads are rejected.
-- **Dynamic API Ban**: `eval`, `new Function`, `vm.runInThisContext`, and `vm.Script` are prohibited in this path.
+## System architecture and workflows
 
-## File Guide
+Data enters via OpenClaw lifecycle hooks, is normalized, evaluated by `SafetyCore`, then routed back to the host while state and incidents are persisted.
 
-### By Responsibility
+### Hook-specific workflows
 
-- **Entry points**
-  - `src/entrypoints/plugin/index.ts`
-  - `src/entrypoints/cli/main.ts`
-  - `src/entrypoints/scripts/hook-once.ts`
-  - `src/entrypoints/scripts/persist-eval.ts`
-- **Adapters**
-  - `src/adapters/openclaw/adapter.ts`
-  - `src/adapters/openclaw/normalize.ts`
-  - `src/adapters/openclaw/tool-params.ts`
-  - `src/adapters/llm-judge/client.ts`
-- **Core domain**
-  - `src/core/engine/safety-core.ts`
-  - `src/core/engine/factory.ts`
-  - `src/core/evaluation/deterministic.ts`
-  - `src/core/policy/loader.ts`
-  - `src/core/policy/retriever.ts`
-  - `src/core/policy/schema.ts`
-  - `src/core/models/event.ts`
-  - `src/core/models/decision.ts`
-  - `src/core/models/decision-sanitize.ts`
-- **Executors**
-  - `src/executors/interceptors/tool-result.ts`
-  - `src/executors/wrappers/shell.ts`
-  - `src/executors/wrappers/file-write.ts`
-  - `src/executors/wrappers/web-fetch.ts`
-- **Infrastructure & shared**
-  - `src/infrastructure/config/settings.ts`
-  - `src/infrastructure/logger/incidents.ts`
-  - `src/infrastructure/state/session-id.ts`
-  - `src/infrastructure/state/session-state.ts`
-  - `src/shared/utils/package-root.ts`
-  - `src/shared/utils/common.ts`
+- **`before_tool_call` / `after_tool_call`**
+  - *Environment:* Same Node process, `await SafetyCore.evaluate`.
+  - *Purpose:* `before_tool_call` can sanitize, replace, require confirm (mapped to block), or block parameters before execution.
+- **`before_prompt_build`**
+  - *Environment:* Same process when enabled.
+  - *Purpose:* Context-risk evaluation and incident logging; does **not** inject prompt instructions.
+- **`tool_result_persist` (sync path)**
+  - *Environment:* Synchronous hook; parent uses `spawnSync` to run `dist/entrypoints/scripts/hook-once.js`.
+  - *Purpose:* JSON request on stdin; JSON decision on stdout. See **The synchronous bridge and security guarantees**.
 
-### By Common Debug Scenario
+### Execution flow (step-by-step)
 
-- **Tool call was blocked unexpectedly**:
-  - `src/core/evaluation/deterministic.ts`
-  - `src/core/engine/safety-core.ts`
-  - `src/adapters/openclaw/adapter.ts`
-- **Sanitization result is not what you expected**:
-  - `src/adapters/openclaw/tool-params.ts`
-  - `src/core/models/decision-sanitize.ts`
-- **`tool_result_persist` behavior is inconsistent**:
-  - `src/entrypoints/scripts/hook-once.ts`
-  - `src/entrypoints/scripts/persist-eval.ts`
-  - `src/executors/interceptors/tool-result.ts`
-- **Policy not loaded / policy mismatch**:
-  - `src/core/policy/loader.ts`
-  - `src/core/policy/retriever.ts`
-  - `src/infrastructure/config/settings.ts`
+1. **Entry:** `src/entrypoints/plugin/index.ts`
+2. **Normalization:** `src/adapters/openclaw/normalize.ts`, `src/adapters/openclaw/tool-params.ts`
+3. **Routing:** Internal event in `src/core/models/event.ts`; `SafetyCore` in `src/core/engine/safety-core.ts`
+4. **Evaluation:** Policy retrieval, deterministic fences, optional judge, fallback, default allow
+5. **Decision and persistence:** Decision model in `src/core/models/decision.ts`; incidents and session state via infrastructure; adapter maps back to hook return shape
 
-## Related Docs
+### Lifecycle flow diagram
+
+```mermaid
+flowchart TD
+  OpenClawHooks --> PluginEntry
+  PluginEntry --> BeforePromptBuild
+  PluginEntry --> BeforeToolCall
+  PluginEntry --> AfterToolCall
+  PluginEntry --> ToolResultPersist
+
+  BeforePromptBuild --> AdapterRoute
+  BeforeToolCall --> NormalizeParams
+  NormalizeParams --> AdapterRoute
+  AfterToolCall --> AdapterRoute
+  AdapterRoute --> SafetyCore
+
+  ToolResultPersist --> SpawnSyncHookOnce
+  SpawnSyncHookOnce --> AdapterRoutePersist
+  AdapterRoutePersist --> SafetyCore
+
+  SafetyCore --> DeterministicCheck
+  DeterministicCheck -->|hit| FinalDecision
+  DeterministicCheck -->|miss| JudgeClient
+  JudgeClient -->|success| FinalDecision
+  JudgeClient -->|fail_or_null| FallbackHeuristics
+  FallbackHeuristics -->|hit| FinalDecision
+  FallbackHeuristics -->|miss| DefaultAllow
+  DefaultAllow --> FinalDecision
+
+  FinalDecision --> IncidentLog
+  FinalDecision --> SessionState
+  FinalDecision --> HookReturn
+```
+
+| Diagram node | Primary source |
+|----------------|----------------|
+| OpenClawHooks | OpenClaw host |
+| PluginEntry | `src/entrypoints/plugin/index.ts` |
+| NormalizeParams | `src/adapters/openclaw/normalize.ts`, `src/adapters/openclaw/tool-params.ts` |
+| AdapterRoute / AdapterRoutePersist | `src/adapters/openclaw/adapter.ts` |
+| SpawnSyncHookOnce | `src/entrypoints/scripts/persist-eval.ts` |
+| SafetyCore | `src/core/engine/safety-core.ts` |
+| DeterministicCheck | `src/core/evaluation/deterministic.ts` |
+| JudgeClient | `src/adapters/llm-judge/client.ts` |
+| IncidentLog | `src/infrastructure/logger/incidents.ts` |
+| SessionState | `src/infrastructure/state/session-state.ts` |
+
+### Data transformation (information flow) diagram
+
+```mermaid
+flowchart LR
+  RawHookPayload --> NormalizeLayer
+  NormalizeLayer --> AdapterMapping
+  AdapterMapping --> EventModel
+  EventModel --> SafetyCoreEval
+
+  SafetyCoreEval --> SessionRead
+  SafetyCoreEval --> PolicyRetrieve
+  PolicyRetrieve --> RetrievedPolicies
+
+  SafetyCoreEval --> HardBarrier
+  HardBarrier -->|hit| DecisionOut
+  HardBarrier -->|miss| GuardJudge
+  GuardJudge -->|success| DecisionOut
+  GuardJudge -->|null_or_error| FallbackRule
+  FallbackRule -->|hit| DecisionOut
+  FallbackRule -->|miss| DefaultAllowOut
+  DefaultAllowOut --> DecisionOut
+
+  DecisionOut --> IncidentWrite
+  DecisionOut --> SessionWrite
+  DecisionOut --> HookMappingOut
+```
+
+| Diagram node | Primary source |
+|----------------|----------------|
+| NormalizeLayer | `src/adapters/openclaw/normalize.ts`, `src/adapters/openclaw/tool-params.ts` |
+| AdapterMapping | `src/adapters/openclaw/adapter.ts` |
+| EventModel | `src/core/models/event.ts` |
+| SafetyCoreEval | `src/core/engine/safety-core.ts` |
+| SessionRead / SessionWrite | `src/infrastructure/state/session-state.ts` |
+| PolicyRetrieve / RetrievedPolicies | `src/core/policy/retriever.ts`, `src/core/policy/loader.ts` |
+| HardBarrier | `src/core/evaluation/deterministic.ts` |
+| GuardJudge | `src/adapters/llm-judge/client.ts` |
+| DecisionOut | `src/core/models/decision.ts` |
+| IncidentWrite | `src/infrastructure/logger/incidents.ts` |
+| HookMappingOut | `src/adapters/openclaw/adapter.ts` (+ `src/executors/interceptors/tool-result.ts` on persist path) |
+
+---
+
+## The synchronous bridge and security guarantees
+
+`tool_result_persist` must stay synchronous. Evaluation runs in a **child process** (`hook-once`); the parent parses JSON stdout and applies the decision to the message (including optional rewriting) via `src/executors/interceptors/tool-result.ts`.
+
+### `hook-once` security fences
+
+Child execution (`src/entrypoints/scripts/hook-once.ts`, invoked from `src/entrypoints/scripts/persist-eval.ts`):
+
+- **No code execution:** Routing and evaluation only; no executing string code from tool output.
+- **JSON-only IPC:** Structured JSON on stdin/stdout.
+- **Input validation:** Unknown hooks, invalid shapes, and oversize payloads are rejected.
+- **Dynamic API ban:** `eval`, `new Function`, `vm.runInThisContext`, and `vm.Script` are not used on this path.
+
+---
+
+## File guide
+
+Use this as a single index; paths are relative to the repository root.
+
+### By question
+
+- **How does a hook enter the system?** `src/entrypoints/plugin/index.ts`
+- **How are external payloads normalized?** `src/adapters/openclaw/normalize.ts`
+- **Where is tool param coercion performed?** `src/adapters/openclaw/tool-params.ts`
+- **Where is the final decision assembled?** `src/core/engine/safety-core.ts`
+- **Where does policy ranking happen?** `src/core/policy/retriever.ts`
+- **Where are incidents and session state persisted?** `src/infrastructure/logger/incidents.ts`, `src/infrastructure/state/session-state.ts`
+
+### By common debug scenario
+
+- **Tool call blocked unexpectedly:** `src/core/evaluation/deterministic.ts`, then `src/core/engine/safety-core.ts`, then `src/adapters/openclaw/adapter.ts`.
+- **Sanitization not as expected:** `src/adapters/openclaw/tool-params.ts`, `src/core/models/decision-sanitize.ts`
+- **`tool_result_persist` inconsistent:** `src/entrypoints/scripts/hook-once.ts`, `src/entrypoints/scripts/persist-eval.ts`, `src/executors/interceptors/tool-result.ts`
+- **Policy not loaded or mismatch:** `src/core/policy/loader.ts`, `src/core/policy/retriever.ts`, `src/infrastructure/config/settings.ts`
+
+### By responsibility
+
+**Entry points**
+
+- `src/entrypoints/plugin/index.ts`
+- `src/entrypoints/cli/main.ts`
+- `src/entrypoints/scripts/hook-once.ts`
+- `src/entrypoints/scripts/persist-eval.ts`
+
+**Adapters**
+
+- `src/adapters/openclaw/adapter.ts`
+- `src/adapters/openclaw/normalize.ts`
+- `src/adapters/openclaw/tool-params.ts`
+- `src/adapters/llm-judge/client.ts`
+
+**Core domain**
+
+- `src/core/engine/safety-core.ts`
+- `src/core/engine/factory.ts`
+- `src/core/evaluation/deterministic.ts`
+- `src/core/policy/loader.ts`
+- `src/core/policy/retriever.ts`
+- `src/core/policy/schema.ts`
+- `src/core/models/event.ts`
+- `src/core/models/decision.ts`
+- `src/core/models/decision-sanitize.ts`
+
+**Executors and interceptors**
+
+- `src/executors/interceptors/tool-result.ts`
+- `src/executors/wrappers/shell.ts`
+- `src/executors/wrappers/file-write.ts`
+- `src/executors/wrappers/web-fetch.ts`
+
+**Infrastructure and shared**
+
+- `src/infrastructure/config/settings.ts`
+- `src/infrastructure/logger/incidents.ts`
+- `src/infrastructure/state/session-id.ts`
+- `src/infrastructure/state/session-state.ts`
+- `src/shared/utils/package-root.ts`
+- `src/shared/utils/common.ts`
+
+---
+
+## Related documentation
 
 - Operations and configuration: [`USER-GUIDE.md`](./USER-GUIDE.md)
-- Top-level project entry: [`../README.md`](../README.md)
+- Documentation hub (this folder): [`docs/README.md`](./README.md)
+- Project overview and quick start: [root `README.md`](../README.md)
