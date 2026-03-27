@@ -14,10 +14,17 @@ function safeSessionFileName(sessionId: string): string {
 
 export class SessionStateStore {
   private readonly baseDir: string;
+  private readonly writable: boolean;
 
   constructor(runtimeDir: string) {
     this.baseDir = path.join(runtimeDir, "session_state");
-    fs.mkdirSync(this.baseDir, { recursive: true });
+    try {
+      fs.mkdirSync(this.baseDir, { recursive: true });
+      this.writable = true;
+    } catch (err) {
+      this.writable = false;
+      console.warn("[SessionStateStore] failed to prepare state directory, running in degraded mode.", err);
+    }
   }
 
   private path(sessionId: string): string {
@@ -25,21 +32,32 @@ export class SessionStateStore {
   }
 
   load(sessionId: string): SessionState {
+    const fallback = { session_id: sessionId, recent_events: [], risk_flags: [], counters: {} };
     const p = this.path(sessionId);
-    if (!fs.existsSync(p)) {
-      return { session_id: sessionId, recent_events: [], risk_flags: [], counters: {} };
+    try {
+      if (!fs.existsSync(p)) {
+        return fallback;
+      }
+      const data = JSON.parse(fs.readFileSync(p, "utf8")) as SessionState;
+      return {
+        session_id: data.session_id ?? sessionId,
+        recent_events: Array.isArray(data.recent_events) ? data.recent_events : [],
+        risk_flags: Array.isArray(data.risk_flags) ? data.risk_flags : [],
+        counters: typeof data.counters === "object" && data.counters ? data.counters : {},
+      };
+    } catch (err) {
+      console.warn("[SessionStateStore] failed to load state, returning default state.", err);
+      return fallback;
     }
-    const data = JSON.parse(fs.readFileSync(p, "utf8")) as SessionState;
-    return {
-      session_id: data.session_id ?? sessionId,
-      recent_events: Array.isArray(data.recent_events) ? data.recent_events : [],
-      risk_flags: Array.isArray(data.risk_flags) ? data.risk_flags : [],
-      counters: typeof data.counters === "object" && data.counters ? data.counters : {},
-    };
   }
 
   save(state: SessionState): void {
-    fs.writeFileSync(this.path(state.session_id), JSON.stringify(state, null, 2) + "\n", "utf8");
+    if (!this.writable) return;
+    try {
+      fs.writeFileSync(this.path(state.session_id), JSON.stringify(state, null, 2) + "\n", "utf8");
+    } catch (err) {
+      console.warn("[SessionStateStore] failed to persist state update.", err);
+    }
   }
 
   update(sessionId: string, event: Record<string, unknown>, decision: Record<string, unknown>): SessionState {

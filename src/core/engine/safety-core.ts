@@ -18,15 +18,14 @@ export type EvaluationResult = {
 export class SafetyCore {
   private policies: Policy[];
   private retriever: PolicyRetriever;
-  private readonly sessionStore: SessionStateStore;
 
   constructor(
     private readonly policyLoader: PolicyLoader,
     private readonly incidentLogger: IncidentLogger,
     private readonly judgeClient: GuardJudgeClient,
     private readonly runtimeDir: string,
+    private readonly sessionStore: SessionStateStore,
   ) {
-    this.sessionStore = new SessionStateStore(this.runtimeDir);
     this.policies = this.policyLoader.load();
     this.retriever = new PolicyRetriever(this.policies);
   }

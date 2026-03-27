@@ -5,9 +5,46 @@ import type { Event } from "../../core/models/event.js";
 import type { RetrievedPolicy } from "../../core/policy/retriever.js";
 import { ensureJsonable, utcNow } from "../../shared/utils/common.js";
 
+const MAX_LOG_STRING_CHARS = 16_384;
+
+type TruncationStats = {
+  truncated: boolean;
+  string_fields: number;
+  dropped_chars: number;
+};
+
+function truncateLargeStrings(value: unknown, stats: TruncationStats): unknown {
+  if (typeof value === "string") {
+    if (value.length <= MAX_LOG_STRING_CHARS) return value;
+    stats.truncated = true;
+    stats.string_fields += 1;
+    stats.dropped_chars += value.length - MAX_LOG_STRING_CHARS;
+    return `${value.slice(0, MAX_LOG_STRING_CHARS)}...[truncated]`;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => truncateLargeStrings(item, stats));
+  }
+  if (value && typeof value === "object") {
+    const output: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      output[k] = truncateLargeStrings(v, stats);
+    }
+    return output;
+  }
+  return value;
+}
+
 export class IncidentLogger {
+  private readonly writable: boolean;
+
   constructor(private readonly incidentPath: string) {
-    fs.mkdirSync(path.dirname(this.incidentPath), { recursive: true });
+    try {
+      fs.mkdirSync(path.dirname(this.incidentPath), { recursive: true });
+      this.writable = true;
+    } catch (err) {
+      this.writable = false;
+      console.warn("[IncidentLogger] failed to prepare incident directory, running in degraded mode.", err);
+    }
   }
 
   log(
@@ -33,8 +70,31 @@ export class IncidentLogger {
       llm_assisted: decision.judge_used,
       evolution,
     };
-    fs.appendFileSync(this.incidentPath, JSON.stringify(ensureJsonable(record)) + "\n", "utf8");
-    return record;
+    const stats: TruncationStats = { truncated: false, string_fields: 0, dropped_chars: 0 };
+    const jsonable = ensureJsonable(record);
+    const sanitized = truncateLargeStrings(jsonable, stats) as Record<string, unknown>;
+    if (stats.truncated) {
+      sanitized["truncated"] = true;
+      sanitized["truncation"] = {
+        max_string_chars: MAX_LOG_STRING_CHARS,
+        truncated_string_fields: stats.string_fields,
+        dropped_chars: stats.dropped_chars,
+      };
+      console.warn("[IncidentLogger] oversized incident payload truncated before persistence.", stats);
+    }
+    if (this.writable) {
+      try {
+        fs.appendFileSync(this.incidentPath, JSON.stringify(sanitized) + "\n", "utf8");
+      } catch (err) {
+        sanitized["persisted"] = false;
+        sanitized["persist_error"] = "append_failed";
+        console.warn("[IncidentLogger] failed to append incident record, degraded in-memory mode.", err);
+      }
+    } else {
+      sanitized["persisted"] = false;
+      sanitized["persist_error"] = "logger_unavailable";
+    }
+    return sanitized;
   }
 
   private evolutionSuggestion(
@@ -62,18 +122,23 @@ export class IncidentLogger {
   }
 
   readAll(): Record<string, unknown>[] {
-    if (!fs.existsSync(this.incidentPath)) return [];
-    const records: Record<string, unknown>[] = [];
-    const lines = fs.readFileSync(this.incidentPath, "utf8").split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      try {
-        records.push(JSON.parse(line) as Record<string, unknown>);
-      } catch {
-        /* skip */
+    try {
+      if (!fs.existsSync(this.incidentPath)) return [];
+      const records: Record<string, unknown>[] = [];
+      const lines = fs.readFileSync(this.incidentPath, "utf8").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        try {
+          records.push(JSON.parse(line) as Record<string, unknown>);
+        } catch {
+          /* skip malformed line */
+        }
       }
+      return records;
+    } catch (err) {
+      console.warn("[IncidentLogger] failed to read incidents, returning empty list.", err);
+      return [];
     }
-    return records;
   }
 }

@@ -1,6 +1,7 @@
 import { loadSettings, type Settings } from "../../infrastructure/config/settings.js";
 import { IncidentLogger } from "../../infrastructure/logger/incidents.js";
 import { GuardJudgeClient } from "../../adapters/llm-judge/client.js";
+import { SessionStateStore } from "../../infrastructure/state/session-state.js";
 import { PolicyLoader } from "../policy/loader.js";
 import { SafetyCore } from "./safety-core.js";
 
@@ -14,6 +15,7 @@ export function buildSafetyCore(settings: Settings): SafetyCore {
       maxTokens: settings.guardMaxTokens,
     }),
     settings.runtimeDir,
+    new SessionStateStore(settings.runtimeDir),
   );
 }
 
