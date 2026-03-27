@@ -1,7 +1,7 @@
 {
   "name": "openclaw-plugin-clawshield",
   "version": "1.0.0",
-  "description": "OpenClaw plugin: ClawShield safety hooks via clawshield-openclaw-bridge (replaces workspace Markdown injection).",
+  "description": "OpenClaw plugin: embedded TypeScript ClawShield SafetyCore (prompt + tool hooks, no Python bridge).",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -11,18 +11,32 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "openclaw.plugin.json", "README.md"],
+  "files": [
+    "dist",
+    "docs",
+    "openclaw.plugin.json",
+    "README.md",
+    "policies"
+  ],
   "engines": {
     "node": ">=22"
   },
   "openclaw": {
-    "extensions": ["./dist/index.js"]
+    "extensions": [
+      "./dist/index.js"
+    ]
   },
   "scripts": {
     "build": "tsc",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "test": "vitest run"
   },
-  "keywords": ["openclaw", "openclaw-plugin", "clawshield", "safety"],
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "clawshield",
+    "safety"
+  ],
   "license": "MIT",
   "peerDependencies": {
     "openclaw": ">=2026.3.24"
@@ -30,6 +44,7 @@
   "devDependencies": {
     "@types/node": "^25.5.0",
     "openclaw": "2026.3.24",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
   }
 }

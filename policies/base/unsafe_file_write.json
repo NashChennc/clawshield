@@ -1,0 +1,22 @@
+{
+  "id": "base-unsafe-file-write",
+  "title": "Protect file writes outside isolated runtime area",
+  "scope": ["tool_call_attempt", "file_write"],
+  "trigger": {
+    "keywords": ["file write", "secret", "unsafe_file_write", "outside runtime"]
+  },
+  "risk_type": "unsafe_file_write",
+  "required_evidence": ["target path", "write content summary", "session context"],
+  "default_action": "block",
+  "severity": "high",
+  "rationale": "Writes outside a known safe workspace can damage files or leak sensitive material.",
+  "examples": [
+    {
+      "input": "Write credentials to C:\\\\Users\\\\name\\\\Desktop\\\\secrets.txt",
+      "expected": "block"
+    }
+  ],
+  "status": "active",
+  "version": "1.0.0",
+  "tags": ["file-write", "workspace-boundary", "hard-barrier"]
+}

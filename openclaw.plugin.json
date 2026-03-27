@@ -1,27 +1,23 @@
 {
   "id": "clawshield",
   "name": "ClawShield",
-  "description": "Safety hooks for OpenClaw: replaces workspace Markdown injection with prompt + tool intercepts via clawshield-openclaw-bridge.",
+  "description": "Safety hooks for OpenClaw: embedded TypeScript SafetyCore (prompt + tool intercepts; tool_result_persist uses Node eval-once subprocess).",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "bridgeCommand": {
-        "type": "string",
-        "description": "Executable or name on PATH for the ClawShield bridge (default: clawshield-openclaw-bridge)."
-      },
-      "evalTimeoutMs": {
-        "type": "number",
-        "minimum": 1000,
-        "description": "Max milliseconds to wait for hook-eval (default: 120000)."
-      },
       "failClosed": {
         "type": "boolean",
-        "description": "If true, block tool calls when the bridge fails or times out. If false, allow (default: true)."
+        "description": "If true, block tool calls when evaluation fails or throws. If false, allow (default: true)."
       },
       "enablePromptContextEval": {
         "type": "boolean",
-        "description": "Run SafetyCore on before_prompt_build payload via bridge (default: true)."
+        "description": "Run SafetyCore on before_prompt_build payload (default: true)."
+      },
+      "persistEvalTimeoutMs": {
+        "type": "number",
+        "minimum": 1000,
+        "description": "Max milliseconds to wait for tool_result_persist eval-once subprocess (default: 120000)."
       }
     }
   }

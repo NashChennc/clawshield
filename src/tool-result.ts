@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { DecisionDict } from "./bridge.js";
+import type { DecisionDict } from "./core/decision.js";
 
 function isToolResultMessage(msg: AgentMessage): msg is Extract<AgentMessage, { role: "toolResult" }> {
   return msg.role === "toolResult";

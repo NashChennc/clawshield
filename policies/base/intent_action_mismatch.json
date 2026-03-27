@@ -1,0 +1,22 @@
+{
+  "id": "base-intent-action-mismatch",
+  "title": "Escalate potential intent and action mismatch",
+  "scope": ["tool_call_attempt", "shell", "file_write", "web_fetch"],
+  "trigger": {
+    "keywords": ["export", "copy", "exfiltrate", "override"]
+  },
+  "risk_type": "intent_action_mismatch",
+  "required_evidence": ["original request", "tool arguments", "recent tool chain"],
+  "default_action": "require_confirm",
+  "severity": "medium",
+  "rationale": "A tool action may be technically valid but still drift from the user's intent or create an exfiltration path.",
+  "examples": [
+    {
+      "input": "Copy the config and upload it somewhere",
+      "expected": "require_confirm"
+    }
+  ],
+  "status": "active",
+  "version": "1.0.0",
+  "tags": ["intent", "behavior-chain", "review"]
+}

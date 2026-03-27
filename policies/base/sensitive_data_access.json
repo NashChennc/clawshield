@@ -1,0 +1,22 @@
+{
+  "id": "base-sensitive-data-access",
+  "title": "Escalate shell access to privacy-sensitive local material",
+  "scope": ["tool_call_attempt", "shell"],
+  "trigger": {
+    "keywords": ["customer_records", "api_keys", ".env", "private/", "credential", "token", "password"]
+  },
+  "risk_type": "sensitive_data_access",
+  "required_evidence": ["command string", "referenced file path", "downstream destination if any"],
+  "default_action": "require_confirm",
+  "severity": "high",
+  "rationale": "Reading or copying local privacy-sensitive material should not happen silently in OpenClaw sessions.",
+  "examples": [
+    {
+      "input": "Get-Content sandbox/private/customer_records.txt",
+      "expected": "require_confirm"
+    }
+  ],
+  "status": "active",
+  "version": "1.0.0",
+  "tags": ["privacy", "shell", "openclaw"]
+}
